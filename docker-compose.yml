@@ -4,28 +4,77 @@ version: "3.8"
 # Based on https://github.com/Mailu/Mailu
 # Images hosted at ghcr.io/mailu/
 
+x-common-env: &common-env
+  # Required
+  SECRET_KEY: ${SECRET_KEY:-ChangeMeNow123456}
+  DOMAIN: ${DOMAIN:-example.com}
+  HOSTNAMES: ${HOSTNAMES:-mail.example.com}
+  POSTMASTER: ${POSTMASTER:-admin}
+  # TLS
+  TLS_FLAVOR: ${TLS_FLAVOR:-letsencrypt}
+  INBOUND_TLS_ENFORCE: ${INBOUND_TLS_ENFORCE:-false}
+  # Features
+  ADMIN: ${ADMIN:-true}
+  WEBMAIL: ${WEBMAIL:-none}
+  WEBDAV: ${WEBDAV:-none}
+  ANTIVIRUS: ${ANTIVIRUS:-none}
+  # Mail settings
+  MESSAGE_SIZE_LIMIT: ${MESSAGE_SIZE_LIMIT:-50000000}
+  MESSAGE_RATELIMIT: ${MESSAGE_RATELIMIT:-200/day}
+  RELAYNETS: ${RELAYNETS:-}
+  RELAYHOST: ${RELAYHOST:-}
+  RELAYUSER: ${RELAYUSER:-}
+  RELAYPASSWORD: ${RELAYPASSWORD:-}
+  FETCHMAIL_DELAY: ${FETCHMAIL_DELAY:-600}
+  RECIPIENT_DELIMITER: ${RECIPIENT_DELIMITER:-+}
+  REJECT_UNLISTED_RECIPIENT: ${REJECT_UNLISTED_RECIPIENT:-yes}
+  DMARC_RUA: ${DMARC_RUA:-admin}
+  DMARC_RUF: ${DMARC_RUF:-admin}
+  # Welcome
+  WELCOME: ${WELCOME:-false}
+  WELCOME_SUBJECT: ${WELCOME_SUBJECT:-Welcome to your new email account}
+  WELCOME_BODY: ${WELCOME_BODY:-Welcome to your new email account!}
+  # Web paths
+  WEBROOT_REDIRECT: ${WEBROOT_REDIRECT:-/webmail}
+  WEB_ADMIN: ${WEB_ADMIN:-/admin}
+  WEB_WEBMAIL: ${WEB_WEBMAIL:-/webmail}
+  SITENAME: ${SITENAME:-TinyMailServer}
+  WEBSITE: ${WEBSITE:-https://github.com/vinzabe/tinymailserver}
+  # Security
+  AUTH_RATELIMIT: ${AUTH_RATELIMIT:-10/minute;1000/hour}
+  DISABLE_STATISTICS: ${DISABLE_STATISTICS:-True}
+  LOG_LEVEL: ${LOG_LEVEL:-WARNING}
+  CREDENTIAL_ROUNDS: ${CREDENTIAL_ROUNDS:-12}
+  REAL_IP_HEADER: ${REAL_IP_HEADER:-}
+  REAL_IP_FROM: ${REAL_IP_FROM:-}
+  # Network
+  SUBNET: ${SUBNET:-192.168.203.0/24}
+
 services:
   # Reverse proxy and SSL termination
   front:
     image: ghcr.io/mailu/nginx:${VERSION:-2024.06}
     container_name: ${COMPOSE_PROJECT_NAME:-mail}_front
     restart: unless-stopped
-    env_file: stack.env
+    environment:
+      <<: *common-env
     ports:
       - "${BIND_ADDRESS:-0.0.0.0}:${HTTP_PORT:-80}:80"
       - "${BIND_ADDRESS:-0.0.0.0}:${HTTPS_PORT:-443}:443"
       - "${BIND_ADDRESS:-0.0.0.0}:${SMTP_PORT:-25}:25"
-      - "${BIND_ADDRESS:-0.0.0.0}:465:465"    # SMTPS
-      - "${BIND_ADDRESS:-0.0.0.0}:587:587"    # Submission
-      - "${BIND_ADDRESS:-0.0.0.0}:110:110"    # POP3
-      - "${BIND_ADDRESS:-0.0.0.0}:995:995"    # POP3S
-      - "${BIND_ADDRESS:-0.0.0.0}:143:143"    # IMAP
-      - "${BIND_ADDRESS:-0.0.0.0}:993:993"    # IMAPS
+      - "${BIND_ADDRESS:-0.0.0.0}:465:465"
+      - "${BIND_ADDRESS:-0.0.0.0}:587:587"
+      - "${BIND_ADDRESS:-0.0.0.0}:110:110"
+      - "${BIND_ADDRESS:-0.0.0.0}:995:995"
+      - "${BIND_ADDRESS:-0.0.0.0}:143:143"
+      - "${BIND_ADDRESS:-0.0.0.0}:993:993"
     volumes:
       - certs:/certs
       - overrides_nginx:/overrides:ro
     networks:
-      - mail_network
+      default:
+        aliases:
+          - front
     depends_on:
       - redis
     labels:
@@ -39,7 +88,9 @@ services:
     volumes:
       - redis_data:/data
     networks:
-      - mail_network
+      default:
+        aliases:
+          - redis
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -51,12 +102,15 @@ services:
     image: ghcr.io/mailu/dovecot:${VERSION:-2024.06}
     container_name: ${COMPOSE_PROJECT_NAME:-mail}_imap
     restart: unless-stopped
-    env_file: stack.env
+    environment:
+      <<: *common-env
     volumes:
       - mail_data:/mail
       - overrides_dovecot:/overrides:ro
     networks:
-      - mail_network
+      default:
+        aliases:
+          - imap
     depends_on:
       - front
 
@@ -65,12 +119,15 @@ services:
     image: ghcr.io/mailu/postfix:${VERSION:-2024.06}
     container_name: ${COMPOSE_PROJECT_NAME:-mail}_smtp
     restart: unless-stopped
-    env_file: stack.env
+    environment:
+      <<: *common-env
     volumes:
       - mail_queue:/queue
       - overrides_postfix:/overrides:ro
     networks:
-      - mail_network
+      default:
+        aliases:
+          - smtp
     depends_on:
       - front
 
@@ -79,13 +136,16 @@ services:
     image: ghcr.io/mailu/rspamd:${VERSION:-2024.06}
     container_name: ${COMPOSE_PROJECT_NAME:-mail}_antispam
     restart: unless-stopped
-    env_file: stack.env
+    environment:
+      <<: *common-env
     volumes:
       - filter_data:/var/lib/rspamd
       - dkim_keys:/dkim:ro
       - overrides_rspamd:/etc/rspamd/override.d:ro
     networks:
-      - mail_network
+      default:
+        aliases:
+          - antispam
     depends_on:
       - front
 
@@ -94,12 +154,15 @@ services:
     image: ghcr.io/mailu/admin:${VERSION:-2024.06}
     container_name: ${COMPOSE_PROJECT_NAME:-mail}_admin
     restart: unless-stopped
-    env_file: stack.env
+    environment:
+      <<: *common-env
     volumes:
       - admin_data:/data
       - dkim_keys:/dkim
     networks:
-      - mail_network
+      default:
+        aliases:
+          - admin
     depends_on:
       - redis
 
@@ -108,12 +171,15 @@ services:
     image: ghcr.io/mailu/${WEBMAIL:-snappymail}:${VERSION:-2024.06}
     container_name: ${COMPOSE_PROJECT_NAME:-mail}_webmail
     restart: unless-stopped
-    env_file: stack.env
+    environment:
+      <<: *common-env
     volumes:
       - webmail_data:/data
       - overrides_webmail:/overrides:ro
     networks:
-      - mail_network
+      default:
+        aliases:
+          - webmail
     depends_on:
       - imap
     profiles:
@@ -124,11 +190,14 @@ services:
     image: ghcr.io/mailu/clamav:${VERSION:-2024.06}
     container_name: ${COMPOSE_PROJECT_NAME:-mail}_antivirus
     restart: unless-stopped
-    env_file: stack.env
+    environment:
+      <<: *common-env
     volumes:
       - filter_data:/data
     networks:
-      - mail_network
+      default:
+        aliases:
+          - antivirus
     profiles:
       - antivirus
 
@@ -137,9 +206,10 @@ services:
     image: ghcr.io/mailu/fetchmail:${VERSION:-2024.06}
     container_name: ${COMPOSE_PROJECT_NAME:-mail}_fetchmail
     restart: unless-stopped
-    env_file: stack.env
+    environment:
+      <<: *common-env
     networks:
-      - mail_network
+      default:
     profiles:
       - fetchmail
 
@@ -148,47 +218,35 @@ services:
     image: ghcr.io/mailu/radicale:${VERSION:-2024.06}
     container_name: ${COMPOSE_PROJECT_NAME:-mail}_webdav
     restart: unless-stopped
-    env_file: stack.env
+    environment:
+      <<: *common-env
     volumes:
       - dav_data:/data
     networks:
-      - mail_network
+      default:
+        aliases:
+          - webdav
     profiles:
       - webdav
 
 volumes:
   certs:
-    name: ${COMPOSE_PROJECT_NAME:-mail}_certs
   redis_data:
-    name: ${COMPOSE_PROJECT_NAME:-mail}_redis
   mail_data:
-    name: ${COMPOSE_PROJECT_NAME:-mail}_mail
   mail_queue:
-    name: ${COMPOSE_PROJECT_NAME:-mail}_queue
   filter_data:
-    name: ${COMPOSE_PROJECT_NAME:-mail}_filter
   dkim_keys:
-    name: ${COMPOSE_PROJECT_NAME:-mail}_dkim
   admin_data:
-    name: ${COMPOSE_PROJECT_NAME:-mail}_admin
   webmail_data:
-    name: ${COMPOSE_PROJECT_NAME:-mail}_webmail
   dav_data:
-    name: ${COMPOSE_PROJECT_NAME:-mail}_dav
   overrides_nginx:
-    name: ${COMPOSE_PROJECT_NAME:-mail}_overrides_nginx
   overrides_dovecot:
-    name: ${COMPOSE_PROJECT_NAME:-mail}_overrides_dovecot
   overrides_postfix:
-    name: ${COMPOSE_PROJECT_NAME:-mail}_overrides_postfix
   overrides_rspamd:
-    name: ${COMPOSE_PROJECT_NAME:-mail}_overrides_rspamd
   overrides_webmail:
-    name: ${COMPOSE_PROJECT_NAME:-mail}_overrides_webmail
 
 networks:
-  mail_network:
-    name: ${COMPOSE_PROJECT_NAME:-mail}_network
+  default:
     driver: bridge
     ipam:
       config:
