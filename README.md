@@ -10,6 +10,7 @@ A simplified, Portainer-ready mail server based on [Mailu](https://github.com/Ma
 - **Admin Panel** - Web-based administration
 - **Let's Encrypt** - Automatic SSL certificate management
 - **Portainer Ready** - Deploy directly from Portainer with stack.env
+- **Outbound-Only Mode** - Option to disable incoming mail (relay-only)
 
 ## Quick Start
 
@@ -63,33 +64,73 @@ Edit `stack.env` (or `.env` locally) before deployment:
 | `WEBDAV` | `radicale`, `none` | CalDAV/CardDAV |
 | `TLS_FLAVOR` | `letsencrypt`, `cert`, `notls` | SSL certificate mode |
 
+## Outbound-Only Mode (Deny Incoming Mail)
+
+To use this server as an **outbound-only relay** (send mail but reject all incoming):
+
+### Option 1: Disable Port 25
+
+Set in `stack.env`:
+```env
+# Set SMTP_PORT to 0 or empty to not expose port 25
+SMTP_PORT=0
+
+# Reject any mail to unknown recipients
+REJECT_UNLISTED_RECIPIENT=yes
+```
+
+### Option 2: Use Firewall
+
+Block incoming connections to port 25:
+```bash
+# UFW
+ufw deny in 25/tcp
+
+# iptables
+iptables -A INPUT -p tcp --dport 25 -j DROP
+```
+
+### Option 3: Don't Create Domains
+
+Simply don't add any domains in the admin panel. All incoming mail will be rejected as "user unknown".
+
+### Outbound Relay Configuration
+
+To relay through an external SMTP server:
+```env
+# Relay all outgoing mail through another server
+RELAYHOST=[smtp.example.com]:587
+RELAYUSER=your_username
+RELAYPASSWORD=your_password
+```
+
 ## Ports
 
-| Port | Protocol | Description |
-|------|----------|-------------|
-| 25 | SMTP | Mail transfer |
-| 465 | SMTPS | Secure SMTP |
-| 587 | Submission | Mail submission |
-| 110 | POP3 | Mail retrieval |
-| 995 | POP3S | Secure POP3 |
-| 143 | IMAP | Mail access |
-| 993 | IMAPS | Secure IMAP |
-| 80 | HTTP | Web interface |
-| 443 | HTTPS | Secure web interface |
+| Port | Protocol | Description | Disable |
+|------|----------|-------------|---------|
+| 25 | SMTP | Mail transfer (incoming) | Set `SMTP_PORT=0` |
+| 465 | SMTPS | Secure SMTP | - |
+| 587 | Submission | Mail submission (authenticated) | - |
+| 110 | POP3 | Mail retrieval | - |
+| 995 | POP3S | Secure POP3 | - |
+| 143 | IMAP | Mail access | - |
+| 993 | IMAPS | Secure IMAP | - |
+| 80 | HTTP | Web interface | Set `HTTP_PORT=0` |
+| 443 | HTTPS | Secure web interface | Set `HTTPS_PORT=0` |
 
 ## DNS Configuration
 
 Add these DNS records for your domain:
 
 ```
-# MX Record
+# MX Record (skip if outbound-only)
 @       MX      10 mail.example.com.
 
 # A/AAAA Records
 mail    A       YOUR_SERVER_IP
 mail    AAAA    YOUR_SERVER_IPV6
 
-# SPF Record
+# SPF Record (required for sending)
 @       TXT     "v=spf1 mx a:mail.example.com -all"
 
 # DMARC Record
