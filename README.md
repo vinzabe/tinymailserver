@@ -1,5 +1,9 @@
 # TinyMailServer
 
+[![CI](https://github.com/vinzabe/tinymailserver/actions/workflows/ci.yml/badge.svg)](https://github.com/vinzabe/tinymailserver/actions/workflows/ci.yml)
+[![Docker](https://img.shields.io/badge/docker-compose-blue?logo=docker)](https://docs.docker.com/compose/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A simplified, Portainer-ready mail server based on [Mailu](https://github.com/Mailu/Mailu).
 
 ## Features
@@ -11,18 +15,10 @@ A simplified, Portainer-ready mail server based on [Mailu](https://github.com/Ma
 - **Let's Encrypt** - Automatic SSL certificate management
 - **Portainer Ready** - Deploy directly from Portainer with stack.env
 - **Outbound-Only Mode** - Option to disable incoming mail (relay-only)
+- **Docker Profiles** - Enable optional services (webmail, antivirus, webdav, fetchmail)
+- **Redis Caching** - Fast session and cache storage
 
 ## Quick Start
-
-### Using Portainer
-
-1. In Portainer, go to **Stacks** > **Add stack**
-2. Select **Repository** and enter:
-   - Repository URL: `https://github.com/vinzabe/tinymailserver`
-   - Compose path: `docker-compose.yml`
-   - Env file: `stack.env`
-3. Configure the environment variables
-4. Deploy the stack
 
 ### Using Docker Compose
 
@@ -42,9 +38,68 @@ docker compose up -d
 docker compose --profile webmail up -d
 ```
 
-## Configuration
+### Using Portainer
 
-Edit `stack.env` (or `.env` locally) before deployment:
+1. In Portainer, go to **Stacks** > **Add stack**
+2. Select **Repository** and enter:
+   - Repository URL: `https://github.com/vinzabe/tinymailserver`
+   - Compose path: `docker-compose.yml`
+   - Env file: `stack.env`
+3. Configure the environment variables
+4. Deploy the stack
+
+## Portainer Deployment Guide
+
+### Step-by-Step Deployment
+
+1. **Access Portainer**: Navigate to your Portainer instance (e.g., `https://your-server:9443`)
+
+2. **Create a New Stack**:
+   - Go to **Stacks** in the left sidebar
+   - Click **Add stack**
+   - Choose a name (e.g., `tinymailserver`)
+
+3. **Configure Repository**:
+   - Select **Repository** as the build method
+   - **Repository URL**: `https://github.com/vinzabe/tinymailserver`
+   - **Repository reference**: `refs/heads/main`
+   - **Compose path**: `docker-compose.yml`
+   - Check **Load variables from .env file** and set path to `stack.env`
+
+4. **Set Environment Variables**:
+   Add the following required variables in the **Environment variables** section:
+   ```
+   SECRET_KEY=YourRandomSecretKey16Plus
+   DOMAIN=yourdomain.com
+   HOSTNAMES=mail.yourdomain.com
+   POSTMASTER=admin
+   ```
+
+5. **Optional Variables**:
+   ```
+   TLS_FLAVOR=letsencrypt
+   WEBMAIL=snappymail
+   ANTIVIRUS=none
+   ```
+
+6. **Deploy**: Click **Deploy the stack**
+
+### Enabling Optional Services in Portainer
+
+To enable profiles (webmail, antivirus, etc.) in Portainer:
+
+1. Edit your stack
+2. In the **Advanced options** section, add to **Compose file options**:
+   ```
+   --profile webmail --profile antivirus
+   ```
+
+Or set environment variables to control features:
+- `WEBMAIL=snappymail` or `WEBMAIL=roundcube`
+- `ANTIVIRUS=clamav` (uses ~1GB RAM)
+- `WEBDAV=radicale`
+
+## Environment Variables
 
 ### Required Settings
 
@@ -55,7 +110,19 @@ Edit `stack.env` (or `.env` locally) before deployment:
 | `HOSTNAMES` | Mail server hostname(s) | `mail.example.com` |
 | `POSTMASTER` | Admin email local part | `admin` |
 
-### Optional Features
+### Network Settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VERSION` | `2024.06` | Mailu version |
+| `COMPOSE_PROJECT_NAME` | `mail` | Docker project name |
+| `BIND_ADDRESS` | `0.0.0.0` | Address to bind ports |
+| `HTTP_PORT` | `80` | HTTP port |
+| `HTTPS_PORT` | `443` | HTTPS port |
+| `SMTP_PORT` | `25` | SMTP port (set to 0 to disable) |
+| `SUBNET` | `192.168.203.0/24` | Internal Docker network |
+
+### Feature Toggles
 
 | Variable | Options | Description |
 |----------|---------|-------------|
@@ -63,6 +130,26 @@ Edit `stack.env` (or `.env` locally) before deployment:
 | `ANTIVIRUS` | `clamav`, `none` | ClamAV (uses ~1GB RAM) |
 | `WEBDAV` | `radicale`, `none` | CalDAV/CardDAV |
 | `TLS_FLAVOR` | `letsencrypt`, `cert`, `notls` | SSL certificate mode |
+| `ADMIN` | `true`, `false` | Enable admin panel |
+
+### Mail Settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MESSAGE_SIZE_LIMIT` | `50000000` | Max message size (bytes) |
+| `MESSAGE_RATELIMIT` | `200/day` | Outgoing rate limit per user |
+| `RELAYHOST` | - | External relay host |
+| `RELAYUSER` | - | Relay authentication user |
+| `RELAYPASSWORD` | - | Relay authentication password |
+| `REJECT_UNLISTED_RECIPIENT` | `yes` | Reject unknown recipients |
+
+### Security Settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AUTH_RATELIMIT` | `10/minute;1000/hour` | Auth rate limit per IP |
+| `INBOUND_TLS_ENFORCE` | `false` | Require TLS for inbound |
+| `LOG_LEVEL` | `WARNING` | Log verbosity |
 
 ## Outbound-Only Mode (Deny Incoming Mail)
 
@@ -177,14 +264,14 @@ docker compose --profile webmail --profile antivirus --profile webdav up -d
 
 | Volume | Purpose |
 |--------|---------|
-| `mail_certs` | SSL certificates |
-| `mail_mail` | User mailboxes |
+| `certs` | SSL certificates |
+| `mail_data` | User mailboxes |
 | `mail_queue` | Mail queue |
-| `mail_filter` | Spam filter data |
-| `mail_dkim` | DKIM keys |
-| `mail_admin` | Admin database |
-| `mail_webmail` | Webmail data |
-| `mail_redis` | Cache data |
+| `filter_data` | Spam filter data |
+| `dkim_keys` | DKIM keys |
+| `admin_data` | Admin database |
+| `webmail_data` | Webmail data |
+| `redis_data` | Cache data |
 
 ## Troubleshooting
 
@@ -205,6 +292,15 @@ telnet mail.example.com 25
 docker compose down
 docker compose up -d
 ```
+
+### Common Issues
+
+| Issue | Solution |
+|-------|----------|
+| Certificate errors | Ensure DNS points to server, check `TLS_FLAVOR` |
+| Can't receive mail | Verify port 25 is open, check MX records |
+| Can't send mail | Check SPF/DKIM/DMARC, verify relay settings |
+| Admin login fails | Reset password with CLI command above |
 
 ## License
 
